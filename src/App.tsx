@@ -4,7 +4,6 @@
  */
 
 import { useState, useEffect, useRef, FormEvent, MouseEvent } from "react";
-import { GoogleGenAI, Type } from "@google/genai";
 import {
   Search,
   BookOpen,
@@ -85,24 +84,16 @@ export default function App() {
 
   // Rotate loading quotes
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isLoading) {
-      interval = setInterval(() => {
-        setQuoteIndex((prev) => (prev + 1) % LOADING_QUOTES.length);
-      }, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [isLoading]);
-
-  // Load history & API Key from localStorage on mount
-  useEffect(() => {
     try {
-      const savedKey = localStorage.getItem("gemini_api_key");
+      const savedKey = sessionStorage.getItem("mimbar_turost_gemini_api_key");
       if (savedKey) {
         setApiKey(savedKey);
         setApiKeyInput(savedKey);
+      } else {
+        // Show modal on first load if no key
+        setShowApiKeyModal(true);
       }
-      const stored = localStorage.getItem("turats_sermon_history");
+      const stored = localStorage.getItem("turost_sermon_history");
       if (stored) {
         setHistory(JSON.parse(stored));
       }
@@ -112,24 +103,56 @@ export default function App() {
     }
   }, []);
 
-  const handleSaveApiKey = (e: FormEvent) => {
+  const [isValidating, setIsValidating] = useState(false);
+  const handleSaveApiKey = async (e: FormEvent) => {
     e.preventDefault();
     const trimmed = apiKeyInput.trim();
-    setApiKey(trimmed);
-    if (trimmed) {
-      localStorage.setItem("gemini_api_key", trimmed);
-      triggerNotification("API Key berhasil disimpan!");
-    } else {
-      localStorage.removeItem("gemini_api_key");
-      triggerNotification("API Key dihapus dari browser.");
+    
+    if (!trimmed) {
+      setApiKey("");
+      sessionStorage.removeItem("mimbar_turost_gemini_api_key");
+      triggerNotification("Kunci API dihapus.");
+      setShowApiKeyModal(false);
+      return;
     }
+
+    setIsValidating(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/validate-key", {
+        method: "POST",
+        headers: {
+          "x-gemini-api-key": trimmed
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data.valid) {
+        setApiKey(trimmed);
+        sessionStorage.setItem("mimbar_turost_gemini_api_key", trimmed);
+        triggerNotification("API Key valid dan berhasil disimpan!");
+        setShowApiKeyModal(false);
+      } else {
+        throw new Error(data.error || "API key tidak valid.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Gagal memvalidasi API Key.");
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  const handleRemoveApiKey = () => {
+    setApiKey("");
+    setApiKeyInput("");
+    sessionStorage.removeItem("mimbar_turost_gemini_api_key");
+    triggerNotification("Kunci API telah dihapus.");
     setShowApiKeyModal(false);
   };
 
   // Save history to localStorage
   const saveHistoryToLocalStorage = (newHistory: SermonHistoryItem[]) => {
     try {
-      localStorage.setItem("turats_sermon_history", JSON.stringify(newHistory));
+      localStorage.setItem("turost_sermon_history", JSON.stringify(newHistory));
     } catch (e) {
       console.error("Gagal menyimpan histori", e);
     }
@@ -189,147 +212,6 @@ export default function App() {
     };
   }, []);
 
-  const generateClientSide = async (theme: string, style: string, clientKey: string): Promise<SermonMaterial> => {
-    if (!clientKey || !clientKey.trim()) {
-      throw new Error("Layanan backend serverless sedang tidak merespons. Mohon masukkan Google AI Studio API Key Anda melalui tombol 'Kunci API' di pojok kanan atas untuk memproses kajian langsung dari browser Anda.");
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey: clientKey.trim(),
-    });
-
-    const systemInstruction = `Anda adalah seorang Senior Ulama Akademisi dan Ahli Metodologi Dakwah yang menguasai Kitab-Kitab Turats klasik (Tafsir, Hadis, Fikih, Tazkiyatun Nufus). 
-Tugas Anda adalah membuat bahan rujukan ceramah ilmiah berdasarkan query tema.
-Output HARUS berupa JSON valid sesuai schema.
-Rujukan Kitab Turats yang wajib Anda gunakan (pilih minimal 3-5 kitab yang relevan):
-- Tafsir: Tafsir Ath-Thabari, Tafsir Ibn Kathir, Tafsir Al-Qurthubi, Tafsir Al-Baghawi, Tafsir As-Sa'di, Tafsir Al-Munir.
-- Hadis & Syarah: Sahih Al-Bukhari (Fathul Bari - Ibnu Hajar Al-Asqalani), Sahih Muslim (Al-Minhaj - An-Nawawi), Sunan Abu Dawud (Awn al-Ma'bud), Jami' at-Tirmidhi (Tuhfat al-Ahwadhi).
-- Fikih & Ushul: Al-Majmu' Syarh Al-Muhadzdzab, Al-Mughni (Ibnu Qudamah), Bidayatul Mujtahid (Ibnu Rusyd), Al-Umm (Imam Asy-Syafi'i).
-- Tazkiyah, Tasawuf & Akhlak: Ihya 'Ulumuddin (Imam Al-Ghazali), Madarijus Salikin (Ibnul Qayyim), Siyar A'lam An-Nubala (Adz-Dzahabi), Minhajul Qashidin (Ibnu Qudamah Al-Maqdisi).`;
-
-    const prompt = `Buatkan draf materi ceramah/khotbah ilmiah berdasarkan tema berikut: "${theme}". 
-Gaya penyampaian/audiens yang diinginkan: "${style}".
-Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (dengan nama kitab & nomor/rawi), atsar sahabat, dan qaul ulama dari kitab-kitab turats bermutu.`;
-
-    const responseSchema = {
-      type: Type.OBJECT,
-      properties: {
-        themeName: { type: Type.STRING, description: "Judul resmi materi ceramah yang menarik dan islami" },
-        style: { type: Type.STRING, description: "Gaya penyampaian" },
-        expandedKeywords: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING },
-          description: "4-6 kata kunci akademik terkait tema ini dalam terminologi Islam/Arab"
-        },
-        summary: { type: Type.STRING, description: "Ringkasan eksekutif draf ceramah dalam 2-3 kalimat" },
-        points: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING },
-          description: "3-4 poin utama pembahasan yang sistematis"
-        },
-        verses: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              surah: { type: Type.STRING, description: "Nama Surah dan Nomor Ayat" },
-              arabic: { type: Type.STRING, description: "Teks Arab ayat lengkap dengan harakat" },
-              translation: { type: Type.STRING, description: "Terjemahan ayat bahasa Indonesia" },
-              tafsirSummary: { type: Type.STRING, description: "Ringkasan penjelasan tafsir turats" }
-            },
-            required: ["surah", "arabic", "translation", "tafsirSummary"]
-          },
-          description: "Minimal 2 ayat Al-Qur'an utama beserta tafsirnya"
-        },
-        hadiths: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              rawi: { type: Type.STRING, description: "Periwayat/Kitab Hadis" },
-              arabic: { type: Type.STRING, description: "Teks Arab hadis" },
-              translation: { type: Type.STRING, description: "Terjemahan bahasa Indonesia" },
-              status: { type: Type.STRING, description: "Kualitas hadis dan penjelasan singkat syarah" }
-            },
-            required: ["rawi", "arabic", "translation", "status"]
-          },
-          description: "Minimal 2 hadis shahih/hasan beserta syarahnya"
-        },
-        atsars: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              figure: { type: Type.STRING, description: "Nama Sahabat Nabi" },
-              text: { type: Type.STRING, description: "Teks Arab/Matan riwayat sahabat" },
-              translation: { type: Type.STRING, description: "Terjemahan Indonesia" },
-              source: { type: Type.STRING, description: "Kitab rujukan" }
-            },
-            required: ["figure", "text", "translation", "source"]
-          },
-          description: "Minimal 2 atsar/riwayat dari Sahabat Nabi RA"
-        },
-        qauls: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              field: { type: Type.STRING, description: "Bidang ilmu" },
-              book: { type: Type.STRING, description: "Nama kitab turats spesifik" },
-              author: { type: Type.STRING, description: "Nama ulama penyusun" },
-              text: { type: Type.STRING, description: "Kutipan teks Arab perkataan ulama" },
-              translation: { type: Type.STRING, description: "Terjemahan Indonesia" },
-              relevance: { type: Type.STRING, description: "Relevansi penjelasan ulama" }
-            },
-            required: ["field", "book", "author", "text", "translation", "relevance"]
-          },
-          description: "Minimal 3 kutipan ulama dari kitab-kitab turats terkenal"
-        },
-        scientificCaution: { 
-          type: Type.STRING, 
-          description: "Peringatan ilmiah penting tentang kehati-hatian mengutip" 
-        },
-        draft: { 
-          type: Type.STRING, 
-          description: "Draft naskah ceramah lengkap yang siap dibacakan" 
-        }
-      },
-      required: [
-        "themeName", "style", "expandedKeywords", "summary", "points",
-        "verses", "hadiths", "atsars", "qauls", "scientificCaution", "draft"
-      ]
-    };
-
-    const candidateModels = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
-    let lastError: any = null;
-
-    for (const modelName of candidateModels) {
-      try {
-        console.log(`[Client-Side] Menghubungi Gemini API dengan model ${modelName}...`);
-        const response = await ai.models.generateContent({
-          model: modelName,
-          contents: prompt,
-          config: {
-            systemInstruction,
-            responseMimeType: "application/json",
-            responseSchema,
-            temperature: 0.2,
-          },
-        });
-
-        if (response.text) {
-          return JSON.parse(response.text.trim());
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`[Client-Side] Gagal dengan model ${modelName}:`, err.message || err);
-        // Continue to try next candidate model
-      }
-    }
-
-    throw lastError || new Error("Gagal menghasilkan konten dari seluruh pilihan model Gemini API.");
-  };
-
   const handleGenerate = async (e?: FormEvent, customTheme?: string) => {
     if (e) e.preventDefault();
     const finalTheme = customTheme || themeInput;
@@ -338,67 +220,53 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
       return;
     }
 
+    const effectiveApiKey = apiKey.trim() || sessionStorage.getItem("mimbar_turost_gemini_api_key");
+
+    if (!effectiveApiKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     stopTts();
 
-    const effectiveApiKey = apiKey.trim() || (((import.meta as any).env?.VITE_GEMINI_API_KEY as string) || "").trim();
-
     try {
       let data: (SermonMaterial & { error?: string }) | null = null;
 
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout for serverless endpoint
+      const response = await fetch("/api/generate-ceramah", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-gemini-api-key": effectiveApiKey,
+        },
+        body: JSON.stringify({
+          themeName: finalTheme,
+          style: selectedStyle,
+        }),
+      });
 
-        const response = await fetch("/api/generate-ceramah", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": effectiveApiKey,
-          },
-          body: JSON.stringify({
-            theme: finalTheme,
-            style: selectedStyle,
-            userApiKey: effectiveApiKey,
-          }),
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        const contentType = response.headers.get("content-type") || "";
-        if (contentType.includes("application/json")) {
-          data = await response.json().catch(() => null);
-        }
-
-        if (!response.ok || !data || data.error) {
-          throw new Error(data?.error || `Serverless response status ${response.status}`);
-        }
-      } catch (serverErr: any) {
-        console.warn("Backend serverless tidak merespons JSON atau timeout, beralih ke direct client generation...", serverErr);
-        if (effectiveApiKey) {
-          data = await generateClientSide(finalTheme, selectedStyle, effectiveApiKey);
-        } else {
-          setApiKeyInput(apiKey);
-          setShowApiKeyModal(true);
-          throw new Error("Layanan backend serverless (Netlify) tidak merespons atau melebihi batas waktu (timeout). Silakan isi Google AI Studio API Key Anda pada tombol 'Kunci API' di kanan atas untuk memproses kajian langsung dari browser (Client-Side).");
-        }
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        data = await response.json().catch(() => null);
       }
 
-      if (!data) {
-        throw new Error("Gagal memproses naskah ceramah.");
+      if (!response.ok || !data || data.error) {
+        if (response.status === 401) {
+            setApiKey("");
+            sessionStorage.removeItem("mimbar_turost_gemini_api_key");
+            setShowApiKeyModal(true);
+        }
+        throw new Error(data?.error || "Terjadi kesalahan saat menghubungi layanan AI.");
       }
 
       if (data && data.draft) {
-        // Gantikan literal backslash 'n' dengan karakter baris baru sesungguhnya jika ada
         data.draft = data.draft.replace(/\\n/g, "\n");
       }
-      setCurrentMaterial(data);
+      setCurrentMaterial(data as SermonMaterial);
 
       setActiveTab("summary");
       
-      // Save to history list
       const newItem: SermonHistoryItem = {
         id: Date.now().toString(),
         theme: data.themeName,
@@ -410,10 +278,10 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
           hour: "2-digit",
           minute: "2-digit",
         }),
-        material: data,
+        material: data as SermonMaterial,
       };
 
-      const updatedHistory = [newItem, ...history.filter(h => h.theme.toLowerCase() !== data.themeName.toLowerCase())].slice(0, 15);
+      const updatedHistory = [newItem, ...history.filter(h => h.theme.toLowerCase() !== data!.themeName.toLowerCase())].slice(0, 15);
       setHistory(updatedHistory);
       saveHistoryToLocalStorage(updatedHistory);
       
@@ -423,7 +291,7 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
       triggerNotification("Bahan ceramah berhasil disusun!");
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Terjadi masalah koneksi atau kegagalan AI.");
+      setError(err.message || "Koneksi ke layanan AI gagal. Periksa internet Anda dan coba kembali.");
     } finally {
       setIsLoading(false);
     }
@@ -461,7 +329,7 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
     if (!currentMaterial) return;
     
     let md = `# Bahan Ceramah: ${currentMaterial.themeName}\n`;
-    md += `*Gaya Ceramah: ${currentMaterial.style} | Disusun oleh Mimbar Turats AI*\n\n`;
+    md += `*Gaya Ceramah: ${currentMaterial.style} | Disusun oleh Mimbar Turost AI*\n\n`;
     md += `## 1. Ringkasan Tema\n${currentMaterial.summary}\n\n`;
     
     md += `## 2. Poin-poin Utama\n`;
@@ -542,7 +410,7 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
       </head>
       <body>
         <h1>Bahan Penyusunan Ceramah: ${currentMaterial.themeName}</h1>
-        <p class="meta">Gaya Ceramah: ${currentMaterial.style} | Tanggal Pembuatan: ${new Date().toLocaleDateString("id-ID")} | Disusun otomatis oleh Mimbar Turats AI</p>
+        <p class="meta">Gaya Ceramah: ${currentMaterial.style} | Tanggal Pembuatan: ${new Date().toLocaleDateString("id-ID")} | Disusun otomatis oleh Mimbar Turost AI</p>
         
         <div class="section-title">1. Ringkasan Tema</div>
         <p>${currentMaterial.summary}</p>
@@ -729,7 +597,7 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
             </div>
             <div>
               <h1 className="font-serif text-lg sm:text-2xl font-bold tracking-tight text-amber-100 flex items-center gap-2">
-                Mimbar Turats <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">Dawah AI</span>
+                Mimbar Turost <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">Dawah AI</span>
               </h1>
               <p className="text-xs text-emerald-100 font-medium hidden sm:block">Penyusun Bahan Ceramah Ilmiah berbasis Rujukan Kitab Turats</p>
             </div>
@@ -1467,7 +1335,7 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
               <div id="printable-content" className="hidden print-only print:block text-neutral-900 space-y-8 bg-white p-6 font-serif">
                 <div className="border-b-4 border-brand-900 pb-4 text-center">
                   <h1 className="text-3xl font-bold font-serif text-brand-950">{currentMaterial.themeName}</h1>
-                  <p className="text-xs text-neutral-500 font-mono mt-1">Gaya Ceramah: {currentMaterial.style} | Disusun oleh Mimbar Turats AI</p>
+                  <p className="text-xs text-neutral-500 font-mono mt-1">Gaya Ceramah: {currentMaterial.style} | Disusun oleh Mimbar Turost AI</p>
                 </div>
 
                 <div className="space-y-4">
@@ -1557,7 +1425,7 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
               <div className="space-y-2 max-w-xl mx-auto">
                 <h3 className="font-serif text-xl sm:text-2xl font-bold text-neutral-900">Siapkan Khutbah & Ceramah Anda</h3>
                 <p className="text-sm text-neutral-500 leading-relaxed">
-                  Mimbar Turats AI membantu Anda mencari ayat, derajat hadis, atsar sahabat, dan perkataan para ulama salaf dari puluhan kitab turats muktabar secara instan, serta menyusun konsep draf naskah ceramah yang kaya makna ilmiah.
+                  Mimbar Turost AI membantu Anda mencari ayat, derajat hadis, atsar sahabat, dan perkataan para ulama salaf dari puluhan kitab turats muktabar secara instan, serta menyusun konsep draf naskah ceramah yang kaya makna ilmiah.
                 </p>
               </div>
 
@@ -1597,7 +1465,7 @@ Pastikan naskah kaya akan ayat Al-Qur'an (dengan sanad/tafsir), hadis shahih (de
       {/* FOOTER BAR */}
       <footer id="main-footer" className="bg-neutral-950 text-neutral-400 py-6 border-t border-neutral-800 text-center text-xs mt-auto no-print">
         <div className="max-w-7xl mx-auto px-4 space-y-2">
-          <p className="font-serif font-semibold text-neutral-300">Mimbar Turats - Penyusun Bahan Ceramah Berbasis Kitab Turats</p>
+          <p className="font-serif font-semibold text-neutral-300">Mimbar Turost - Penyusun Bahan Ceramah Berbasis Kitab Turats</p>
           <p className="text-neutral-500 max-w-xl mx-auto">
             Aplikasi ini ditujukan sebagai asisten pencari awal dan pengelompok dakwah secara digital. Pengguna wajib memverifikasi keaslian sanad dan matan secara mandiri sebelum melafazkannya di hadapan khalayak umum.
           </p>

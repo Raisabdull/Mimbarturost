@@ -1,5 +1,5 @@
 {
-  "name": "Mimbar Turats",
+  "name": "Mimbar Turost",
   "description": "Platform cerdas penyusun bahan khutbah dan ceramah keislaman bersumber kitab-kitab turats klasik",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
