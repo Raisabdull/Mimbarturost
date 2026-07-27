@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import generateCeramahHandler from "./api/generate-ceramah";
 import validateKeyHandler from "./api/validate-key";
+import exportDocxHandler from "./api/export-docx";
 
 const app = express();
 const PORT = 3000;
@@ -22,6 +23,7 @@ function createVercelHandler(handler: any) {
 
 app.post("/api/generate-ceramah", createVercelHandler(generateCeramahHandler));
 app.post("/api/validate-key", createVercelHandler(validateKeyHandler));
+app.post("/api/export-docx", createVercelHandler(exportDocxHandler));
 
 app.use("/api/*", (req, res) => {
   res.status(404).json({ error: `Endpoint API (${req.originalUrl}) tidak ditemukan.` });
