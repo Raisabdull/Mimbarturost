@@ -25,7 +25,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const prompt = `Buatkan materi ceramah/khutbah/kajian Islam yang sangat mendalam dan berbobot dengan tema: "${themeName}".
 Gaya Bahasa/Penyampaian: ${style}.
 Target Audiens/Segmentasi: ${segmentation || "Umum"}.
-Sub-topik/Fokus pembahasan: ${topics || "Tidak ada spesifikasi khusus, buatkan yang paling relevan"}.`;
+Sub-topik/Fokus pembahasan: ${topics || "Tidak ada spesifikasi khusus, buatkan yang paling relevan"}.
+PENTING: Pastikan naskah (draft) dibuat dengan Halaman yang PANJANG, SANGAT DETAIL, MENDALAM, dan KOMPREHENSIF. Draft harus terdiri dari MINIMAL 10 PARAGRAF yang panjang. Gunakan jeda baris ganda (double newline) untuk memisahkan antar paragraf.
+Semua kutipan dalil (Ayat Al-Qur'an, Hadis, Atsar Sahabat, dan Qaul Ulama) yang ada di dalam draft HARUS DITULIS DALAM TEKS ARAB ASLINYA (lengkap dengan harakat) lalu diikuti terjemahannya.
+SANGAT PENTING: Teks Arab aslinya HARUS SELALU DITULIS PADA PARAGRAF TERPISAH, sendirian, dipisahkan dengan jeda baris ganda (double newline) dari teks bahasa Indonesia di atas maupun di bawahnya. Jangan pernah mencampur teks Arab dan teks Indonesia dalam satu baris/paragraf yang sama!`;
 
     const systemInstruction = `Kamu adalah seorang ulama kharismatik, cendekiawan muslim, pakar sejarah Islam, dan ahli tafsir-hadis yang memiliki pemahaman mendalam tentang kitab-kitab turats (klasik).
 Tugasmu adalah menyusun materi ceramah/kajian yang sangat terstruktur, ilmiah, dan berbobot dengan merujuk langsung pada sumber-sumber otentik (Al-Qur'an, Hadis riwayat terpercaya, Atsar sahabat, dan qaul/perkataan ulama salaf dari kitab turats).`;
@@ -118,7 +121,7 @@ Tugasmu adalah menyusun materi ceramah/kajian yang sangat terstruktur, ilmiah, d
         },
         draft: {
           type: Type.STRING,
-          description: "Draft naskah ceramah lengkap yang siap dibacakan, ditulis dengan bahasa Indonesia yang sangat persuasif, mengalir, indah, dan menyertakan pembuka (mukaddimah), pembahasan poin-poin dalil di atas secara menyatu, serta penutup doa. Gunakan gaya bahasa/audiens yang dipilih secara penuh."
+          description: "Draft naskah ceramah lengkap yang siap dibacakan, ditulis dengan bahasa Indonesia yang sangat persuasif, mengalir, indah, sangat mendalam dan detail, serta menyertakan pembuka (mukaddimah), pembahasan poin-poin dalil di atas secara menyatu, dan penutup doa. PENTING: Semua teks ayat Al-Qur'an, Hadis, Atsar sahabat, dan Qaul ulama di dalam draft ini WAJIB disertakan teks Arab aslinya (berharakat) beserta terjemahannya. Gunakan gaya bahasa/audiens yang dipilih secara penuh."
         }
       },
       required: [

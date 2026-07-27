@@ -386,16 +386,19 @@ export default function App() {
   };
 
   // Export as Word Document
-  const exportWord = () => {
+  const exportWord = async () => {
     if (!currentMaterial) return;
+    
+    triggerNotification("Sedang membuat dokumen Word...");
 
     const content = `
-      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <!DOCTYPE html>
+      <html>
       <head>
         <meta charset="utf-8">
         <title>${currentMaterial.themeName}</title>
         <style>
-          body { font-family: 'Georgia', 'Times New Roman', serif; line-height: 1.6; color: #1f2937; margin: 30px; }
+          body { font-family: 'Georgia', 'Times New Roman', serif; line-height: 1.6; color: #1f2937; padding: 20px; }
           h1 { color: #166534; font-size: 24pt; border-bottom: 2px solid #b45309; padding-bottom: 8px; }
           .meta { color: #6b7280; font-size: 10pt; margin-bottom: 20px; font-style: italic; }
           .section-title { font-size: 16pt; font-weight: bold; color: #14532d; margin-top: 30px; border-bottom: 1px solid #d1d5db; padding-bottom: 4px; }
@@ -474,7 +477,10 @@ export default function App() {
             .split(/\n\s*\n/)
             .map(p => {
               if (!p.trim()) return '';
-              return `<p style="margin-bottom: 14px; text-indent: 0px; line-height: 1.6;">${p.trim().replace(/\n/g, '<br>')}</p>`;
+              const arabicCount = (p.match(/[\u0600-\u06FF]/g) || []).length;
+              const latinCount = (p.match(/[a-zA-Z]/g) || []).length;
+              const isMainlyArabic = arabicCount > latinCount && arabicCount > 0;
+              return `<p dir="auto" style="margin-bottom: 14px; text-align: justify; line-height: 1.6; ${isMainlyArabic ? 'font-family: serif; font-size: 18pt; text-align: right; font-weight: bold; margin-top: 14px;' : ''}">${p.trim().replace(/\n/g, '<br>')}</p>`;
             })
             .join('')
           }
@@ -483,16 +489,31 @@ export default function App() {
       </html>
     `;
 
-    const blob = new Blob(['\ufeff' + content], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Bahan_Ceramah_${currentMaterial.themeName.replace(/\s+/g, '_')}.doc`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    triggerNotification("File Word (.doc) berhasil diunduh.");
+    try {
+      const response = await fetch('/api/export-docx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: content, themeName: currentMaterial.themeName })
+      });
+
+      if (!response.ok) {
+        throw new Error('Gagal membuat dokumen dari server');
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Bahan_Ceramah_${currentMaterial.themeName.replace(/\s+/g, '_')}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      triggerNotification("File Word (.docx) berhasil diunduh.");
+    } catch (error) {
+      console.error(error);
+      triggerNotification("Gagal mengunduh file Word, coba lagi.");
+    }
   };
 
   // Export to PDF directly using html2pdf
@@ -1293,8 +1314,16 @@ export default function App() {
                       </div>
                     )}
 
-                    <div className="bg-[#fdfbf7] border border-amber-500/20 rounded-xl p-5 sm:p-8 font-serif leading-relaxed text-neutral-800 text-base shadow-inner whitespace-pre-wrap max-h-[500px] overflow-y-auto font-medium">
-                      {currentMaterial.draft}
+                    <div className="bg-[#fdfbf7] border border-amber-500/20 rounded-xl p-5 sm:p-8 font-serif leading-relaxed text-neutral-800 text-base shadow-inner max-h-[500px] overflow-y-auto font-medium space-y-4">
+                      {currentMaterial.draft.split(/\n\s*\n/).map((p, i) => {
+                        if (!p.trim()) return null;
+                        const arabicCount = (p.match(/[\u0600-\u06FF]/g) || []).length;
+                        const latinCount = (p.match(/[a-zA-Z]/g) || []).length;
+                        const isMainlyArabic = arabicCount > latinCount && arabicCount > 0;
+                        return (
+                          <p key={i} className={`text-justify ${isMainlyArabic ? 'font-arabic text-xl leading-loose text-right text-brand-900 font-bold my-4' : 'mb-4'}`} dir="auto" dangerouslySetInnerHTML={{__html: p.trim().replace(/\n/g, '<br/>')}} />
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1407,8 +1436,16 @@ export default function App() {
 
                 <div className="space-y-4">
                   <h2 className="text-xl font-bold border-b pb-1 text-brand-900">8. Draf Naskah Ceramah Lengkap</h2>
-                  <div className="text-sm leading-relaxed whitespace-pre-wrap bg-[#fdfbf7] p-6 rounded-lg border">
-                    {currentMaterial.draft}
+                  <div className="text-sm leading-relaxed bg-[#fdfbf7] p-6 rounded-lg border space-y-4">
+                    {currentMaterial.draft.split(/\n\s*\n/).map((p, i) => {
+                        if (!p.trim()) return null;
+                        const arabicCount = (p.match(/[\u0600-\u06FF]/g) || []).length;
+                        const latinCount = (p.match(/[a-zA-Z]/g) || []).length;
+                        const isMainlyArabic = arabicCount > latinCount && arabicCount > 0;
+                        return (
+                          <p key={i} className={`text-justify ${isMainlyArabic ? 'font-arabic text-xl leading-loose text-right text-brand-900 font-bold my-4' : 'mb-4'}`} dir="auto" dangerouslySetInnerHTML={{__html: p.trim().replace(/\n/g, '<br/>')}} />
+                        );
+                    })}
                   </div>
                 </div>
               </div>
